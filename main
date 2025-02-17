@@ -1,0 +1,490 @@
+/*
+ * JDII Group 26 - Robotic Arm G-Code Generator (Block A: GUI & G-Code Generation)
+ *
+ * This code provides a serial menu for the user to generate G-code for drawing shapes:
+ *  - Straight Line (centered at (0,0))
+ *  - Circle (centered at (0,0))
+ *  - Square (centered at (0,0))
+ *  - Triangle (an equilateral triangle centered at (0,0))
+ *
+ * For each shape, the user is prompted for a dimension (length, radius, or side length)
+ * and the code generates G-code that uses absolute positioning (G90) to draw the shape.
+ */
+
+// ----------------
+// GLOBAL VARIABLES
+// ----------------
+bool showMenu = true;
+// String variable to store user command.
+String userCommand = "";
+// Variable to store the user's dimension
+float dimension = 0.0;
+// Default feed rate
+const float defaultSpeed = 4.0;
+// Feed rate that can be updated by user input
+float feedRate = defaultSpeed;
+
+// Function to initialize the ESP32
+void setup() {
+  // Set serial baud rate
+  Serial.begin(115200);
+  // Wait for serial connection
+  while (!Serial) { ; }
+
+  // Welcome message
+  Serial.println("============================================");
+  Serial.println("  Welcome to JDII Group 26's Robotic Arm!   ");
+  Serial.println("============================================");
+  Serial.println("Instructions:");
+  Serial.println("- Generate G-code for shapes (Line, Circle, Square, Triangle).");
+  Serial.println("- When prompted, enter the shape dimension followed by an optional speed (inches/sec).");
+  Serial.println("  For example, typing '4 3' will use a dimension of 4 and a speed of 3 in/sec.");
+  Serial.println("");
+
+  // Show main menu
+  displayMenu();
+}
+
+// Function that loops after setup finishes.
+void loop() {
+  // Check if user  has sent any input over serial
+  if (Serial.available() > 0) {
+    // Read the user's command until the newline
+    userCommand = Serial.readStringUntil('\n');
+    userCommand.trim();
+
+    // Compare user command and make call to whichever function the user chooses
+    if (userCommand.equalsIgnoreCase("1")) {
+      handleStraightLineOption();
+    }
+    else if (userCommand.equalsIgnoreCase("2")) {
+      handleCircleOption();
+    }
+    else if (userCommand.equalsIgnoreCase("3")) {
+      handleSquareOption();
+    }
+    else if (userCommand.equalsIgnoreCase("4")) {
+      handleTriangleOption();
+    }
+    else if (userCommand.equalsIgnoreCase("m")) {
+      displayMenu();
+    }
+    else if (userCommand.equalsIgnoreCase("q")) {
+      Serial.println("Exiting the menu. Restart or type 'm' to continue.");
+      showMenu = false;
+    }
+    else {
+      Serial.println("\nInvalid input! Please try again.");
+      displayMenu();
+    }
+  }
+}
+
+// Function to display the menu to serial monitor
+void displayMenu() {
+  Serial.println("------ Main Menu ------");
+  Serial.println("[1] Generate G-code for a Straight Line");
+  Serial.println("[2] Generate G-code for a Circle");
+  Serial.println("[3] Generate G-code for a Square");
+  Serial.println("[4] Generate G-code for a Triangle");
+  Serial.println("[m] Show this menu again");
+  Serial.println("[q] Quit menu");
+  Serial.println("-----------------------");
+  Serial.print("Enter your choice: ");
+  showMenu = false;
+}
+
+// Function that handles G-code for straight line
+// For a given length L, the line starts at X = -L/2 and ends at X = L/2.
+void handleStraightLineOption() {
+  Serial.println("\nYou selected: Straight Line");
+  Serial.print("Enter the line length in inches (0.1 to 10) and optional speed (0.1 to 4) separated by space: ");
+  // Get validated input within the range
+  dimension = getValidatedInputWithSpeed(0.1, 10.0, 0.1, 4.0);
+
+  // Tell the user of the specified line length
+  Serial.println("The line will be " + String(dimension, 2) + " inches long at a speed of " + String(feedRate, 2) + " in/sec.");
+
+  // Calculate half of the line length to center the shape
+  float halfLength = dimension / 2.0;
+
+  // Build the G-code string using absolute positioning (G90)
+  String gcode = "G90\n";
+  // Rapid move (G0) to the starting point at the left end of the line (-halfLength, 0)
+  gcode += "G0 X" + String(-halfLength, 2) + " Y0\n";
+  // Draw (G1) a straight line from (-halfLength, 0) to (halfLength, 0) at the default feed rate
+  gcode += "G1 X" + String(halfLength, 2) + " Y0 F" + String(feedRate, 2) + "\n";
+
+  // Output the generated G-code to the Serial monitor
+  Serial.println("----------------------------");
+  Serial.println("[Block A] Generated G-code: ");
+  Serial.println(gcode);
+  Serial.println("----------------------------");
+  // Show the main menu again
+  displayMenu();
+}
+
+// Function that handles G-code for a circle
+// The circle is centered at (0,0), starting at the rightmost point (radius, 0).
+void handleCircleOption() {
+  Serial.println("\nYou selected: Circle");
+  Serial.print("Enter the circle radius in inches (0.5 to 7) and optional speed (0.1 to 4) separated by space: ");
+  // Get the radius from the user
+  dimension = getValidatedInputWithSpeed(0.5, 7.0, 0.1, 4.0);
+
+  Serial.println("The circle will have a radius of " + String(dimension, 2) + " inches at a speed of " + String(feedRate, 2) + " in/sec.");
+
+  // Number of straight segments to approximate the circle
+  const int segments = 36;
+  // Calculate angle increment in radians per segment
+  float angleIncrement = 2 * PI / segments;
+
+  // Start building the G-code string in absolute positioning mode (G90)
+  String gcode = "G90\n";
+  // Calculate the starting point on the circle (at angle 0, which is (radius, 0))
+  float startX = dimension;
+  float startY = 0.0;
+  // Rapid move (G0) to the starting point of the circle
+  gcode += "G0 X" + String(startX, 2) + " Y" + String(startY, 2) + "\n";
+
+  // Loop through each segment to get each linear move
+  for (int i = 1; i <= segments; i++) {
+    // The current angle
+    float angle = i * angleIncrement;
+    // The X and Y coordinates for the current point on the circle
+    float x = dimension * cos(angle);
+    float y = dimension * sin(angle);
+    // Add a G1 command to move to the calculated point with the default feed rate
+    gcode += "G1 X" + String(x, 2) + " Y" + String(y, 2) + " F" + String(feedRate, 2) + "\n";
+  }
+
+  // Output the generated G-code for the circle
+  Serial.println("----------------------------");
+  Serial.println("[Block A] Generated G-code: ");
+  Serial.println(gcode);
+  Serial.println("----------------------------");
+  // Show the main menu again
+  displayMenu();
+}
+
+// Function that generates G-code for a square
+// The square is centered at (0,0) with its corners offset by half the side length.
+void handleSquareOption() {
+  Serial.println("\nYou selected: Square");
+  Serial.print("Enter the side length of the square in inches (0.5 to 7) and optional speed (0.1 to 4) separated by space: ");
+  // Get the side length from the user
+  dimension = getValidatedInputWithSpeed(0.5, 7.0, 0.1, 4.0);
+
+  Serial.println("The square will have a side length of " + String(dimension, 2) + " inches at a speed of " + String(feedRate, 2) + " in/sec.");
+
+  // Calculate half the side length for centering
+  float halfSide = dimension / 2.0;
+
+  // Build the G-code string using absolute positioning (G90)
+  String gcode = "G90\n";
+  // Move (G0) to the bottom-left corner of the square
+  gcode += "G0 X" + String(-halfSide, 2) + " Y" + String(-halfSide, 2) + "\n";
+  // Draw the bottom edge: move to bottom-right corner
+  gcode += "G1 X" + String(halfSide, 2) + " Y" + String(-halfSide, 2) + " F" + String(feedRate, 2) + "\n";
+  // Draw the right edge: move to top-right corner
+  gcode += "G1 X" + String(halfSide, 2) + " Y" + String(halfSide, 2) + " F" + String(feedRate, 2) + "\n";
+  // Draw the top edge: move to top-left corner
+  gcode += "G1 X" + String(-halfSide, 2) + " Y" + String(halfSide, 2) + " F" + String(feedRate, 2) + "\n";
+  // Draw the left edge: return to bottom-left corner to close the square
+  gcode += "G1 X" + String(-halfSide, 2) + " Y" + String(-halfSide, 2) + " F" + String(feedRate, 2) + "\n";
+
+  // Output the generated G-code for the square
+  Serial.println("----------------------------");
+  Serial.println("[Block A] Generated G-code: ");
+  Serial.println(gcode);
+  Serial.println("----------------------------");
+  // Show the main menu again
+  displayMenu();
+}
+
+// Function to generate G-code for drawing a triangle.
+// The triangle is centered at (0,0) with equalaterial vertices.
+void handleTriangleOption() {
+  Serial.println("\nYou selected: Triangle");
+  Serial.print("Enter the side length of the triangle in inches (0.1 to 7) and optional speed (0.1 to 4) separated by space: ");
+  // Get the triangle side length from the user
+  dimension = getValidatedInputWithSpeed(0.1, 7.0, 0.1, 4.0);
+  Serial.println("The triangle will have a side length of " + String(dimension, 2) + " inches at a speed of " + String(feedRate, 2) + " in/sec.");
+
+  // Calculate the height of the equilateral triangle: height = (sqrt(3)/2) * side length
+  float height = (sqrt(3) / 2.0) * dimension;
+
+  // Compute the vertices such that the triangle's centroid is at (0,0)
+  //   - Vertex 1: Top vertex at (0, 2/3 * height)
+  //   - Vertex 2: Bottom left at (-side/2, -1/3 * height)
+  //   - Vertex 3: Bottom right at (side/2, -1/3 * height)
+  float x1 = 0.0;
+  float y1 = (2.0 / 3.0) * height;
+  float x2 = -dimension / 2.0;
+  float y2 = -height / 3.0;
+  float x3 = dimension / 2.0;
+  float y3 = -height / 3.0;
+
+  // Build the G-code string using absolute positioning (G90)
+  String gcode = "G90\n";
+  // Move (G0) to Vertex 1 (top vertex)
+  gcode += "G0 X" + String(x1, 2) + " Y" + String(y1, 2) + "\n";
+  // Draw (G1) a line from Vertex 1 to Vertex 2 (bottom left)
+  gcode += "G1 X" + String(x2, 2) + " Y" + String(y2, 2) + " F" + String(feedRate, 2) + "\n";
+  // Draw (G1) a line from Vertex 2 to Vertex 3 (bottom right)
+  gcode += "G1 X" + String(x3, 2) + " Y" + String(y3, 2) + " F" + String(feedRate, 2) + "\n";
+  // Draw (G1) a line from Vertex 3 back to Vertex 1 to close the triangle
+  gcode += "G1 X" + String(x1, 2) + " Y" + String(y1, 2) + " F" + String(feedRate, 2) + "\n";
+
+  // Output the generated G-code for the triangle
+  Serial.println("----------------------------");
+  Serial.println("[Block A] Generated G-code: ");
+  Serial.println(gcode);
+  Serial.println("----------------------------");
+  // Show the main menu again
+  displayMenu();
+}
+
+// Function that reads input from Serial and ensures it is within the [min, max] range.
+// If the input is invalid, prompt the user again.
+float getValidatedInputWithSpeed(float dimMin, float dimMax, float speedMin, float speedMax) {
+  // Wait for Serial data to be available
+  while (!Serial.available()) {
+    delay(10);
+  }
+  // Read the input line from Serial and trim extra whitespace
+  String inputStr = Serial.readStringUntil('\n');
+  inputStr.trim();
+
+  // Variable for the dimension value
+  float dimValue = 0.0;
+  // Start with the default speed
+  float speedValue = defaultSpeed;
+
+  // Check if the input contains a space (user wants to change default speed)
+  int spaceIndex = inputStr.indexOf(' ');
+  if (spaceIndex == -1) {
+    // No space found, so only a dimension is provided
+    dimValue = inputStr.toFloat();
+  } else {
+    // Extract the dimension and speed substrings
+    String dimStr = inputStr.substring(0, spaceIndex);
+    String speedStr = inputStr.substring(spaceIndex + 1);
+    dimStr.trim();
+    speedStr.trim();
+    dimValue = dimStr.toFloat();
+    speedValue = speedStr.toFloat();
+  }
+
+  // Validate the dimension value
+  if (dimValue < dimMin || dimValue > dimMax) {
+    Serial.println("\nInvalid dimension. Please try again.");
+    return getValidatedInputWithSpeed(dimMin, dimMax, speedMin, speedMax);
+  }
+
+  // Validate the speed value
+  if (speedValue < speedMin || speedValue > speedMax) {
+    Serial.println("\nInvalid speed. Please try again.");
+    return getValidatedInputWithSpeed(dimMin, dimMax, speedMin, speedMax);
+  }
+
+  // Update the global feedRate with the validated speed value
+  feedRate = speedValue;
+  return dimValue;   // Return the validated dimension value
+}
+
+// ===== Block B: Motion Planner & G-Code Parser =====
+
+// Conversion factor: For a 14HS13 stepper (200 steps/rev) with A4988 at 1/16 microstepping,
+// the system uses 3200 steps per revolution.
+#define STEPS_PER_INCH 3200  
+
+// ----- ESP32 Pin Definitions for Stepper Motor Control -----
+// Motor X (first axis)
+#define STEP_X 5
+#define DIR_X 18
+#define ENABLE_X 19  // Active LOW
+
+// Motor Y (second axis)
+#define STEP_Y 4
+#define DIR_Y 2
+#define ENABLE_Y 15
+
+// Block B Global Variables (positions in inches)
+float currentX = 0.0, currentY = 0.0;
+float stepFeedRate = 4.0; // Local feed rate for motion (in inches/sec)
+// Mode flag: false = inches; true = millimeters (conversion applied)
+bool useMM = false;       
+
+// --------------------------------------------------
+// blockBSetup()
+// Initialize motor driver pins and output a debug message.
+// Call blockBSetup() from setup() (after Block A initialization).
+void blockBSetup() {
+  pinMode(STEP_X, OUTPUT);
+  pinMode(DIR_X, OUTPUT);
+  pinMode(ENABLE_X, OUTPUT);
+  pinMode(STEP_Y, OUTPUT);
+  pinMode(DIR_Y, OUTPUT);
+  pinMode(ENABLE_Y, OUTPUT);
+
+  // Enable motor drivers (active LOW)
+  digitalWrite(ENABLE_X, LOW);
+  digitalWrite(ENABLE_Y, LOW);
+  
+  Serial.println("[Block B] Motor drivers enabled.");
+  Serial.print("[Block B] Initial Position: X = ");
+  Serial.print(currentX, 2);
+  Serial.print(" in, Y = ");
+  Serial.print(currentY, 2);
+  Serial.println(" in");
+}
+
+// --------------------------------------------------
+// processGCode()
+// Splits a multi-line G-code string (as generated by Block A) into individual lines,
+// prints the full G-code for reference, and then processes each line with debug output.
+void processGCode(String gcode) {
+  Serial.println("\n[Block B] Processing G-code:");
+  Serial.println(gcode);
+  
+  int start = 0;
+  int end = gcode.indexOf("\n");
+  while (end != -1) {
+    String line = gcode.substring(start, end);
+    line.trim();
+    if (line.length() > 0) {
+      Serial.print("[Block B] Parsing line: ");
+      Serial.println(line);
+      parseGCodeLine(line);
+    }
+    start = end + 1;
+    end = gcode.indexOf("\n", start);
+  }
+}
+
+// --------------------------------------------------
+// parseGCodeLine()
+// Parses a single G-code line, extracts target X, Y and feed rate F,
+// converts units if necessary, and then calls the motor movement functions sequentially.
+void parseGCodeLine(String line) {
+  // Handle mode commands:
+  if (line.startsWith("G90")) {
+    Serial.println("[Block B] Absolute positioning mode (G90) detected.");
+    return;
+  }
+  if (line.startsWith("G21")) {
+    useMM = true;
+    Serial.println("[Block B] Switched to millimeter mode (G21).");
+    return;
+  }
+  if (line.startsWith("G20")) {
+    useMM = false;
+    Serial.println("[Block B] Switched to inch mode (G20).");
+    return;
+  }
+  
+  // Process movement commands (G0 or G1)
+  if (line.startsWith("G0") || line.startsWith("G1")) {
+    float targetX = currentX;
+    float targetY = currentY;
+    
+    if (line.indexOf("X") != -1) {
+      targetX = extractFloat(line, "X");
+    }
+    if (line.indexOf("Y") != -1) {
+      targetY = extractFloat(line, "Y");
+    }
+    if (line.indexOf("F") != -1) {
+      stepFeedRate = extractFloat(line, "F");
+    }
+    
+    // If in millimeter mode, convert values to inches (1 inch = 25.4 mm)
+    if (useMM) {
+      targetX /= 25.4;
+      targetY /= 25.4;
+      stepFeedRate /= 25.4;
+      Serial.println("[Block B] Converted mm to inches.");
+    }
+    
+    Serial.print("[Block B] Target Position: X = ");
+    Serial.print(targetX, 2);
+    Serial.print(" in, Y = ");
+    Serial.print(targetY, 2);
+    Serial.print(" in | Feed Rate: ");
+    Serial.print(stepFeedRate, 2);
+    Serial.println(" in/sec");
+    
+    // Move motors sequentially (first X then Y)
+    moveMotorX(targetX);
+    moveMotorY(targetY);
+  }
+}
+
+// --------------------------------------------------
+// moveMotorX()
+// Moves the X-axis motor from currentX to targetX (in inches) and prints debug info.
+void moveMotorX(float targetX) {
+  int steps = (targetX - currentX) * STEPS_PER_INCH;
+  Serial.print("[Block B] Moving X-axis: ");
+  Serial.print(abs(steps));
+  Serial.println(" steps.");
+  
+  // Set direction: HIGH for positive, LOW for negative
+  digitalWrite(DIR_X, (steps > 0) ? HIGH : LOW);
+  stepMotor(STEP_X, abs(steps));
+  
+  currentX = targetX;
+  Serial.print("[Block B] New X position: ");
+  Serial.print(currentX, 2);
+  Serial.println(" in");
+}
+
+// --------------------------------------------------
+// moveMotorY()
+// Moves the Y-axis motor from currentY to targetY (in inches) and prints debug info.
+void moveMotorY(float targetY) {
+  int steps = (targetY - currentY) * STEPS_PER_INCH;
+  Serial.print("[Block B] Moving Y-axis: ");
+  Serial.print(abs(steps));
+  Serial.println(" steps.");
+  
+  digitalWrite(DIR_Y, (steps > 0) ? HIGH : LOW);
+  stepMotor(STEP_Y, abs(steps));
+  
+  currentY = targetY;
+  Serial.print("[Block B] New Y position: ");
+  Serial.print(currentY, 2);
+  Serial.println(" in");
+}
+
+// --------------------------------------------------
+// stepMotor()
+// Generates the required number of step pulses on the given step pin.
+// The delay per step is calculated from stepFeedRate and STEPS_PER_INCH.
+void stepMotor(int stepPin, int steps) {
+  // Calculate delay per step in microseconds:
+  // delay = (1 / (stepFeedRate * STEPS_PER_INCH)) seconds per step * 1,000,000 µs/sec.
+  unsigned long stepDelay = 1000000UL / (stepFeedRate * STEPS_PER_INCH);
+  // Enforce a minimum delay (e.g., 100 µs) to ensure reliable pulse generation.
+  if (stepDelay < 100) stepDelay = 100;
+  
+  for (int i = 0; i < steps; i++) {
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(50);  // STEP pulse width (50 µs)
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(stepDelay);
+  }
+}
+
+// --------------------------------------------------
+// extractFloat()
+// Helper function that extracts a floating-point number following a given key (e.g., "X", "Y", "F")
+// from a G-code line.
+float extractFloat(String line, String key) {
+  int idx = line.indexOf(key);
+  if (idx == -1) return 0.0;
+  int endIdx = line.indexOf(" ", idx);
+  if (endIdx == -1) endIdx = line.length();
+  return line.substring(idx + 1, endIdx).toFloat();
+}
